@@ -25,8 +25,9 @@ def download_stock_price_data(tickers, start_date, end_date):
 
     return df_prices, df_price_changes
 
-######## Signal Helper Function ############################
+######## Signal Helper Function ##########################
 
+#Function combine two subsignals into one combined signal
 def combine_two_subsignals(signal1, signal2):
     
     signal1 = np.asarray(signal1)
@@ -37,7 +38,7 @@ def combine_two_subsignals(signal1, signal2):
     holding = 0
 
     for i in range(len(signal1)):
-        if holding == 0 and (signal1[i] == 1 or signal2[i] == 1):
+        if holding == 0 and (signal1[i] == 1 or signal2[i] == 1):  #Open position even if only one signal open
             holding = 1
         elif holding == 1 and signal1[i] == 0 and signal2[i] == 0:
             holding = 0
@@ -53,6 +54,7 @@ def moving_average(prices, window_length):
     window_length = int(window_length)
     return np.convolve(prices, np.ones(window_length)/window_length, mode='same')
 
+#Creates a standard MA Crossover signal
 def ma_signal(series, short_window, long_window):
     signals = pd.DataFrame(index=series.index)
     signals['signal'] = 0.0
@@ -73,21 +75,19 @@ def ma_signal(series, short_window, long_window):
     return signals
 
 
-#Helper function exponentail moving avaerage
+#Helper function to compute the exponential moving average
 def exponential_moving_average(prices, MACD_window_length):
 
     ema = np.empty(len(prices))
-    ema[:] = np.nan  # Fill with NaNs
-
+    ema[:] = np.nan
     alpha = 2 / (MACD_window_length + 1)
 
-    # Find first non-NaN index
+    #Find first index
     first_index = np.where(~np.isnan(prices))[0][0]
-
     start = first_index + MACD_window_length - 1
 
     if start < len(prices):
-        # Compute initial average manually
+        #Compute initial average manually
         initial_sum = 0
         count = 0
         for i in range(start - MACD_window_length + 1, start + 1):
@@ -97,14 +97,14 @@ def exponential_moving_average(prices, MACD_window_length):
         initial_avg = initial_sum / count
         ema[start] = initial_avg
 
-        # Compute EMA recursively
+        #Compute EMA
         for i in range(start + 1, len(prices)):
             if not np.isnan(prices[i]):
                 ema[i] = alpha * prices[i] + (1 - alpha) * ema[i - 1]
 
     return ema
 
-
+#Function that generates signal for the MACD
 def signal_macd(prices, short_window, long_window, signal_window):
     signals = pd.DataFrame(index=prices.index)
     signals['signal'] = 0.0
@@ -127,6 +127,7 @@ def signal_macd(prices, short_window, long_window, signal_window):
 
     return signals
 
+#Full implemntation fo first Signal
 def signal01(prices, short_ma, long_ma, short_macd, long_macd, signal_window_macd):
 
     #MA Signal
@@ -151,6 +152,7 @@ def signal01(prices, short_ma, long_ma, short_macd, long_macd, signal_window_mac
 
 ############# Signal 02 ##############################################
 
+#Helper function to compute the Relative Strength Index
 def compute_rsi(prices, window_length):
     
     prices = np.asarray(prices).flatten()
@@ -165,7 +167,7 @@ def compute_rsi(prices, window_length):
     avg_gain[:window_length] = np.nan
     avg_loss[:window_length] = np.nan
     
-    #First average gain and loss (simple mean)
+    #First average gain and loss
     avg_gain[window_length] = gains[:window_length].mean()
     avg_loss[window_length] = losses[:window_length].mean()
     
@@ -178,14 +180,13 @@ def compute_rsi(prices, window_length):
     rs =  avg_gain / (avg_loss + 1e-10)
     rsi = 100 - (100 / (1 + rs))
     
-    #Let the first window_length entries be nan, so it doens't generate any signal
+    #Let the first window_length entries be 50, so it doens't generate any signal, 50 being way off any threshold
     rsi[:window_length] = 50
     
     return rsi
 
-
-def signal_rsi(prices, rsi_window, lower_rsi_bound, upper_rsi_bound):
-    
+#Function that generates signal for the RSI
+def signal_rsi(prices, rsi_window, lower_rsi_bound, upper_rsi_bound):   
     signals = pd.DataFrame(index=prices.index)
     signals['signal'] = 0.0
     
@@ -194,7 +195,7 @@ def signal_rsi(prices, rsi_window, lower_rsi_bound, upper_rsi_bound):
     buy_signal = rsi < lower_rsi_bound
     sell_signal = rsi > upper_rsi_bound
 
-    #Create position signal with holding logic
+    #Create positions
     position = np.zeros(len(prices), dtype=int)
     holding = 0
     for i in range(len(prices)):
@@ -210,9 +211,11 @@ def signal_rsi(prices, rsi_window, lower_rsi_bound, upper_rsi_bound):
 
     return signals
 
+#Helper function to compute Bollinger Bands
 def compute_bollinger_bands(prices, window_length, num_std):
     sma = moving_average(prices, window_length)
     
+    #Shift window forward and compute std
     std = np.full_like(prices, np.nan)
     for i in range(window_length - 1, len(prices)):
         window = prices[i - window_length + 1:i + 1]
@@ -223,6 +226,7 @@ def compute_bollinger_bands(prices, window_length, num_std):
     
     return sma, upper_band, lower_band
 
+#Function that generates signal for the Bollinger Bands
 def signal_bollinger(prices, bollinger_window_length, num_std):
     signals = pd.DataFrame(index=prices.index)
     signals['signal'] = 0.0
@@ -231,19 +235,19 @@ def signal_bollinger(prices, bollinger_window_length, num_std):
     sma, upper_band, lower_band = compute_bollinger_bands(
         prices_array, window_length=bollinger_window_length, num_std=num_std)
 
-    # Check if prices cross back inside lower band
+    #Check if prices cross back inside lower band
     outside_lower = prices_array < lower_band
     outside_lower_prev = np.roll(outside_lower, 1)
     outside_lower_prev[0] = False
     buy_signal = (outside_lower_prev == True) & (outside_lower == False)
 
-    # Check if prices cross back inside upper band
+    #Check if prices cross back inside upper band
     outside_upper = prices_array > upper_band
     outside_upper_prev = np.roll(outside_upper, 1)
     outside_upper_prev[0] = False
     sell_signal = (outside_upper_prev == False) & (outside_upper == True)
 
-    #Create position signal with holding logic
+    #Create positions wiht sell and buy signal
     position = np.zeros(len(prices), dtype=int)
     holding = 0
     for i in range(len(prices)):
@@ -253,14 +257,13 @@ def signal_bollinger(prices, bollinger_window_length, num_std):
             holding = 0
         position[i] = holding
 
-    # Store results
     signals['signal'] = position
     signals['position_change'] = signals['signal'].diff().fillna(0)
     signals.loc[prices.index[0], 'position_change'] = 0
 
     return signals
 
-
+#Full implemntation of second Signal
 def signal02(prices, rsi_window_length, lower_rsi_bound, upper_rsi_bound, bollinger_window_length, bollinger_n_stds):
 
     #RSI Signal
@@ -284,21 +287,23 @@ def signal02(prices, rsi_window_length, lower_rsi_bound, upper_rsi_bound, bollin
 ###################################################################
 
 
-############### Signal 03 ##########################################
+############### Signal 03 #########################################
 
+#Helper function that creates donchian channel high and lows
 def donchian_channel(prices, window_length=20):
     
-    #Initilize
     prices = np.asarray(prices)
     highs = np.full_like(prices, np.nan, dtype=float)
     lows = np.full_like(prices, np.nan, dtype=float)
     
+    #Shift window and always exclude current value
     for i in range(window_length, len(prices)):
-        highs[i] = np.max(prices[i - window_length:i])  # exclude current
+        highs[i] = np.max(prices[i - window_length:i])
         lows[i] = np.min(prices[i - window_length:i])
     
     return highs, lows
 
+#Function that creates Signal based on donchian channel
 def donchian_signals(prices, window_length=20):
     
     signals = pd.DataFrame(index=prices.index)
@@ -307,11 +312,11 @@ def donchian_signals(prices, window_length=20):
     price_array = prices.to_numpy()
     highs, lows = donchian_channel(price_array, window_length)
 
-    # Entry and exit conditions
+    #Create buy and sell conditions
     buy_signal = price_array > highs
     sell_signal = price_array < lows
 
-    #Create position signal with holding logic
+    #Create positions
     position = np.zeros(len(price_array), dtype=float)
     holding = 0
     for i in range(len(prices)):
@@ -327,6 +332,7 @@ def donchian_signals(prices, window_length=20):
 
     return signals
 
+#Helper function that creates ADX
 def compute_adx(prices, window):
 
     prices = np.asarray(prices)
@@ -367,7 +373,7 @@ def compute_adx(prices, window):
     dx = np.abs((di_pos - di_neg) / (di_pos + di_neg)) * 100
 
     #Smooth DX to get ADX
-    adx = np.full(len(prices), 1.0) #Initalize with neutral priyes for the 2* windowlength warmup phase
+    adx = np.full(len(prices), 1.0) #Initalize with neutral values for the 2* windowlength warmup phase
 
     #Smooth DX to get ADX
     adx[window*2-1] = np.mean(dx[:window])
@@ -376,16 +382,18 @@ def compute_adx(prices, window):
         
     return adx.flatten()
 
+#Full implemntation of third Signal with
 def signal03(prices, adx_window_length, adx_threshhold, donchian_window_length):
     
     signals = pd.DataFrame(index=prices.index)
     signals['signal'] = 0.0
-
+    
+    #Compute ADX and Donchian Channel
     adx = compute_adx(prices, adx_window_length)
     donchian_sig = donchian_signals(prices, donchian_window_length)
     donchian_sig_array = np.asarray(donchian_sig['signal'])
 
-    #Custom tradig logic since adx only detects trends but not in which direction -> combine_two_subsignals() function doesn't work
+    #Custom tradig logic: since adx only detects trends but not in which direction -> combine_two_subsignals() function doesn't work here
     position = np.zeros(len(prices), dtype=float)
     holding = 0
     for i in range(len(prices)):
@@ -407,55 +415,15 @@ def signal03(prices, adx_window_length, adx_threshhold, donchian_window_length):
 ############################################################################
 
 
-######### Trading logic #####################################################
+########################### Optimizer ######################################
 
-def simulate_single_stock_trading(df_position_changes, df_price_changes, df_prices, initial_cash=1.0, capital_fraction_per_trade=1):
-
-    def open_trade(position, signal):
-        stock_value, cash = position
-        if signal <= 0:
-            return np.array([stock_value, cash])
-        allocated = cash * (1 - (1 - capital_fraction_per_trade) ** signal)
-        return np.array([stock_value + allocated, cash - allocated])
-
-    def hold_trade(position, price_change):
-        return np.array([position[0] * price_change, position[1]])
-
-    def close_trade(position, signal):
-        stock_value, cash = position
-        if signal < 0:
-            return np.array([0.0, cash + stock_value])
-        return position
-
-    positions = []
-    is_first = True
-
-    for idx in df_position_changes.index:
-        signal = df_position_changes.loc[idx, 'position_change']
-        price_change = df_price_changes.loc[idx]
-
-        if is_first:
-            current_pos = open_trade(np.array([0.0, initial_cash]), signal)
-            is_first = False
-        else:
-            current_pos = hold_trade(positions[-1], price_change)
-            current_pos = close_trade(current_pos, signal)
-            current_pos = open_trade(current_pos, signal)
-
-        positions.append(current_pos)
-
-    df_position = pd.DataFrame(positions, index=df_prices.index, columns=['stock_value', 'cash'])
+#Gridsearch function that can take any Signal as input and optimizes based on the target metric passed
+def gridsearch_strategy(price, param_grid, signal_fn, metric):
     
-    return df_position
-
-
-######### Optimizers #####################################################
-
-def gridsearch_strategy(price, param_grid, signal_fn, metric='sharpe'):
+    #Create list where every possible parameter combination from the passed grid is unpacked 
     keys = list(param_grid.keys())
     shapes = [len(param_grid[k]) for k in keys]
     total_combos = np.prod(shapes)
-
     all_params = []
     for i in range(total_combos):
         idxs = []
@@ -467,11 +435,11 @@ def gridsearch_strategy(price, param_grid, signal_fn, metric='sharpe'):
         combo = {keys[j]: param_grid[keys[j]][idxs[j]] for j in range(len(keys))}
         all_params.append(combo)
 
-    best_score = -np.inf
+    #Initalize storage
     best_params = None
-    best_metrics = None
     results = []
 
+    #Loop over all param combinations and try signal
     for param in all_params:
         signals = signal_fn(price, **param)
         signal = signals['signal']
@@ -484,11 +452,12 @@ def gridsearch_strategy(price, param_grid, signal_fn, metric='sharpe'):
         'b&h sharpe': metrics['BuyHold Sharpe']}
         results.append(result_row)
 
-    # Convert all results to DataFrame
+    #Convert all results to DataFrame
     df_results = pd.DataFrame(results)
     ascending = True if metric in ['max_dd', 'volatility'] else False
     df_sorted = df_results.sort_values(by=metric, ascending=ascending).reset_index(drop=True)
-
+    
+    #Retrieve best parameter combo by sorting by target metric
     best_row = df_sorted.iloc[0]
     best_params = {k: int(best_row[k]) for k in param_grid.keys()}
     best_score = best_row[metric]
@@ -497,33 +466,28 @@ def gridsearch_strategy(price, param_grid, signal_fn, metric='sharpe'):
 
 #################################################################
 
+
+
 ############### Metrics functions ###############################
 
-
-
-def new_strategy_returns(prices, signals, capital_fraction_per_trade):
-    price_changes = prices.pct_change().fillna(0) +1
-    position_changes = signals
-    df_position = simulate_single_stock_trading(position_changes, price_changes, prices, capital_fraction_per_trade, initial_cash=1.0)
-    portfolio_values = df_position.sum(axis=1)  
-    total_return = (portfolio_values.iloc[-1] / portfolio_values.iloc[0]) - 1  
-    return total_return
-
+#Returns array of daily returns based on trading signal
 def strategy_returns(prices, signals):
     positions = np.asarray(signals)
-    #positions = np.roll(signals, 1)
-    positions[0] = 0
-    prices = prices.to_numpy()
+    positions[0] = 0 #No signal in period one
+    prices = np.asarray(prices)
     daily_returns = (prices[1:] / prices[:-1]) - 1
-    strategy_returns = positions[:-1] * daily_returns
-    return strategy_returns
+    daily_strategy_returns = positions[:-1] * daily_returns
+    return daily_strategy_returns
 
+#Returns total cumulative return over the period
 def cumulative_return(returns):
     return np.prod(1 + returns) - 1
 
+#Returns total cumulative return series over time
 def cumulative_return_series(returns):
     return np.cumprod(1 + returns)
 
+#Calculates annualized Sharpe-Ratio
 def sharpe(returns, periods_per_year=252):
     mean = np.mean(returns)
     std = np.std(returns, ddof=1)
@@ -531,15 +495,18 @@ def sharpe(returns, periods_per_year=252):
         return 0
     return (mean / std) * np.sqrt(periods_per_year)
 
+#Calculates annualized volatility
 def volatility(returns, periods_per_year=252):
     return np.std(returns, ddof=1) * np.sqrt(periods_per_year)
 
+#Calculates maximum drawdown from a returns series
 def max_drawdown(returns):
     cum_returns = cumulative_return_series(returns)
     peak = np.maximum.accumulate(cum_returns)
     drawdown = 1 - cum_returns / peak
     return np.max(drawdown)
 
+#Calculates BH Sharpe-Ratio
 def buy_and_hold_sharpe(prices, periods_per_year=252):    
     prices = prices.to_numpy()
     daily_returns = (prices[1:] / prices[:-1]) 
@@ -549,15 +516,110 @@ def buy_and_hold_sharpe(prices, periods_per_year=252):
         return 0
     return (mean / std) * np.sqrt(periods_per_year)
 
+#Calculates modilgiani ratio
+def modigliani_ratio(sharpe_ratio, benchmark_std, risk_free_rate):
+    return risk_free_rate + sharpe_ratio * benchmark_std
+
+#Calculates sortino ratio
+def sortino_ratio(returns, risk_free_rate, periods_per_year=252):
+
+    daily_rf = risk_free_rate / periods_per_year
+    excess_returns = returns - daily_rf
+
+    downside_returns = np.where(excess_returns < 0, excess_returns, 0)
+    downside_std = np.sqrt(np.mean(downside_returns**2))
+    if downside_std == 0:
+        return np.nan
+
+    #Annualize
+    mean_excess = np.mean(excess_returns)
+    
+    return (mean_excess / downside_std) * np.sqrt(periods_per_year)
+
+#Calculates jensens alpha
+def compute_jensens_alpha(portfolio_returns, benchmark_returns, rf_rate_annual, trading_days=252):
+
+    #daily avg
+    avg_port = np.sum(portfolio_returns) / len(portfolio_returns)
+    avg_bench = np.sum(benchmark_returns) / len(benchmark_returns)
+
+    #compute cov
+    cov = np.sum((portfolio_returns - avg_port) * (benchmark_returns - avg_bench)) / (len(benchmark_returns) - 1)
+    var_bench = np.sum((benchmark_returns - avg_bench) ** 2) / (len(benchmark_returns) - 1)
+    cov_ann = cov * trading_days
+    var_ann = var_bench * trading_days
+
+    #Compute beta and alpha
+    beta = cov_ann / var_ann
+    alpha = (avg_port * trading_days) - (rf_rate_annual + beta * ((avg_bench * trading_days) - rf_rate_annual))
+
+    return alpha, beta
+
+#Computes jensens alpha
+def treynor_ratio(returns, beta, risk_free_rate, periods_per_year=252):
+    if beta == 0:
+        return np.nan  #dont devide by zero
+
+    #Mean and annulize
+    mean_daily_return = np.sum(returns) / len(returns)
+    annual_return = mean_daily_return * periods_per_year
+
+    return (annual_return - risk_free_rate) / beta
+
+#Computes information ratio
+def information_ratio(portfolio_returns, benchmark_returns, periods_per_year=252):
+    
+    #Calculate excess returns and mean and std
+    excess_returns = portfolio_returns - benchmark_returns
+    mean_excess = np.mean(excess_returns)
+    tracking_error = np.std(excess_returns, ddof=1)
+    
+    if tracking_error == 0:
+        return np.nan    
+ 
+    #Annualize
+    return (mean_excess / tracking_error) * np.sqrt(periods_per_year)
+
+#Computes max drawdown
+def max_drawdown(returns):
+    cum_returns = np.cumprod(1 + returns)
+    peak = np.maximum.accumulate(cum_returns)
+    drawdown = 1 - cum_returns / peak
+    return np.max(drawdown)
+
+#Computes the calmar ratio for a given window
+def calmar_ratio_from_window(window_returns, periods_per_year=252):
+   
+    #Calculate cumulative return
+    cumulative = np.cumprod(1 + window_returns)
+
+    #Track the running maximum
+    peak = np.maximum.accumulate(cumulative)
+
+    #Compute drawdowns
+    drawdown = 1 - cumulative / peak
+
+    #Max drawdown
+    max_drawdown = np.max(drawdown)
+
+    #Mena and annulize
+    mean_return = np.mean(window_returns)
+    annualized_return = mean_return * periods_per_year
+
+    if max_drawdown == 0:
+        return np.nan
+
+    return annualized_return / max_drawdown
+
+#################################################################
+
 
 #################### Backtesting #################################    
 
+#Function computes all relevant metrics based on signals provided and compares them to the respective BH metrics
 def backtest_strategy(prices, signals, periods_per_year=252):
-
-    #New return function
-        
-
-    #Both returns
+    
+    #Strategy and BH Returns
     strat_returns = strategy_returns(prices, signals)
     prices = prices.to_numpy()
     bh_returns = prices[1:] / prices[:-1] - 1
@@ -595,145 +657,11 @@ def backtest_strategy(prices, signals, periods_per_year=252):
 
 ##################################################
 
-
-
-
-#################### Metrics ####################
-
-def rolling_metric_plot(returns, index, window, metric_func, *args, label_name="Rolling Metric", color="blue", **kwargs):
-    """
-    Compute and plot a rolling performance metric (e.g., Sharpe, Sortino, Treynor).
-    """
-    rolling_values = []
-    rolling_dates = []
-
-    for i in range(window, len(returns)):
-        window_returns = returns[i - window:i]
-        metric_value = metric_func(window_returns, *args, **kwargs)
-        rolling_values.append(metric_value)
-        rolling_dates.append(index[i])
-
-    # Plot
-    plt.figure(figsize=(12, 6))
-    plt.plot(rolling_dates, rolling_values, label=label_name, color=color)
-    plt.title(label_name)
-    plt.xlabel("Date")
-    plt.ylabel(label_name)
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
-
-def modigliani_ratio(sharpe_ratio, benchmark_std, risk_free_rate):
-    return risk_free_rate + sharpe_ratio * benchmark_std
-
-
-
-def sortino_ratio(returns, risk_free_rate, periods_per_year=252):
-
-    daily_rf = risk_free_rate / periods_per_year
-
-    excess_returns = returns - daily_rf
-
-    downside_returns = np.where(excess_returns < 0, excess_returns, 0)
-    downside_std = np.sqrt(np.mean(downside_returns**2))
-    if downside_std == 0:
-        return np.nan
-
-    # Annualized Sortino Ratio
-    mean_excess = np.mean(excess_returns)
-    return (mean_excess / downside_std) * np.sqrt(periods_per_year)
-
-
-
-def compute_jensens_alpha(portfolio_returns, benchmark_returns, rf_rate_annual, trading_days=252):
-
-    # Daily averages
-    avg_port = np.sum(portfolio_returns) / len(portfolio_returns)
-    avg_bench = np.sum(benchmark_returns) / len(benchmark_returns)
-
-    # Covariance and variance (annualized)
-    cov = np.sum((portfolio_returns - avg_port) * (benchmark_returns - avg_bench)) / (len(benchmark_returns) - 1)
-    var_bench = np.sum((benchmark_returns - avg_bench) ** 2) / (len(benchmark_returns) - 1)
-
-    cov_ann = cov * trading_days
-    var_ann = var_bench * trading_days
-
-    # Compute beta and alpha
-    beta = cov_ann / var_ann
-    alpha = (avg_port * trading_days) - (rf_rate_annual + beta * ((avg_bench * trading_days) - rf_rate_annual))
-
-    return alpha, beta
-
-
-
-
-def treynor_ratio(returns, beta, risk_free_rate, periods_per_year=252):
-
-    if beta == 0:
-        return np.nan  # Avoid division by zero
-
-    mean_daily_return = np.sum(returns) / len(returns)
-    annual_return = mean_daily_return * periods_per_year
-
-    return (annual_return - risk_free_rate) / beta
-
-    
-
-
-def information_ratio(portfolio_returns, benchmark_returns, periods_per_year=252):
-    # Calculate excess returns (portfolio - benchmark)
-    excess_returns = portfolio_returns - benchmark_returns
-    
-    # Mean of daily excess returns
-    mean_excess = np.mean(excess_returns)
-    
-    # Tracking error (std of excess returns)
-    tracking_error = np.std(excess_returns, ddof=1)
-    
-    if tracking_error == 0:
-        return np.nan
-    
-    # Annualized information ratio
-    return (mean_excess / tracking_error) * np.sqrt(periods_per_year)
-
-
-def max_drawdown(returns):
-    cum_returns = np.cumprod(1 + returns)
-    peak = np.maximum.accumulate(cum_returns)
-    drawdown = 1 - cum_returns / peak
-    return np.max(drawdown)
-
-def calmar_ratio_from_window(window_returns, periods_per_year=252):
-   
-    # Calculate cumulative return curve
-    cumulative = np.cumprod(1 + window_returns)
-
-    # Track the running maximum (i.e., historical peaks)
-    peak = np.maximum.accumulate(cumulative)
-
-    # Compute drawdowns from peak
-    drawdown = 1 - cumulative / peak
-
-    # Max drawdown
-    max_drawdown = np.max(drawdown)
-
-    # Compute mean daily return and annualize
-    mean_return = np.mean(window_returns)
-    annualized_return = mean_return * periods_per_year
-
-    # Avoid division by zero
-    if max_drawdown == 0:
-        return np.nan
-
-    return annualized_return / max_drawdown
-
-
-
 ####### Plotting #################################  
+    
 def plot_buy_and_sell_signals(position_change, prices, ticker, sig_name):
-
+    
+    #Convert to np
     position_change = np.asarray(position_change)
     dates = prices.index.to_numpy()
     prices = np.asarray(prices[ticker])
@@ -742,7 +670,7 @@ def plot_buy_and_sell_signals(position_change, prices, ticker, sig_name):
     plt.figure(figsize=(15, 4))
     plt.plot(dates, prices, label=f"{ticker} Price", color='black', alpha=0.8)
 
-    #Buy/Sell points
+    #Buy and sell points
     buy = position_change == 1
     sell = position_change == -1
     plt.plot(dates[buy], prices[buy], 'g^', label='Buy', markersize=8)
@@ -752,5 +680,30 @@ def plot_buy_and_sell_signals(position_change, prices, ticker, sig_name):
     plt.title(f"{ticker} - Buy/Sell Signals from: {sig_name}")
     plt.ylabel("Price")
     plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+#This function computes and plot a rolling performance metric for a given metric e.g. sharpe
+def rolling_metric_plot(returns, index, window, metric_func, *args, label_name="Rolling Metric", color="blue", **kwargs):
+    
+    #initilize valeus
+    rolling_values = []
+    rolling_dates = []
+
+    #Roll window forward
+    for i in range(window, len(returns)):
+        window_returns = returns[i - window:i]
+        metric_value = metric_func(window_returns, *args, **kwargs)
+        rolling_values.append(metric_value)
+        rolling_dates.append(index[i])
+
+    #Plot
+    plt.figure(figsize=(12, 6))
+    plt.plot(rolling_dates, rolling_values, label=label_name, color=color)
+    plt.title(label_name)
+    plt.xlabel("Date")
+    plt.ylabel(label_name)
+    plt.grid(True)
+    plt.legend()
     plt.tight_layout()
     plt.show()
